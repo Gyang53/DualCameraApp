@@ -3,6 +3,7 @@ import { RecordService, RecordingConfig, RecordingResult } from '../services/Rec
 import { PermissionService } from '../services/PermissionService';
 import { SplitView } from '../components/SplitView';
 import { PIPView } from '../components/PIPView';
+import { ControlPanel } from '../components/ControlPanel';
 import { Logger } from '../utils/Logger';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { camera } from '@kit.CameraKit';
@@ -22,11 +23,16 @@ struct Index {
   @Local currentMode: 'split' | 'pip' = 'split';
   @Local recordingDuration: number = 0;
   @Local errorMessage: string = '';
+  @Local showControlPanel: boolean = false;
+  @Local zoomRatio: number = 1.0;
+  @Local exposureBias: number = 0;
+  @Local flashEnabled: boolean = false;
+  @Local stabilizationEnabled: boolean = true;
 
   private cameraService: CameraService = new CameraService();
   private recordService: RecordService = new RecordService();
   private permissionService: PermissionService = new PermissionService();
-  
+
   private frontPreviewSurfaceId: string = '';
   private backPreviewSurfaceId: string = '';
   private recordingTimer: number = -1;
@@ -144,6 +150,43 @@ struct Index {
       if (this.recordState === 'recording' || this.recordState === 'paused') {
         this.RecordingIndicator()
       }
+
+      // Control Panel overlay
+      if (this.showControlPanel) {
+        Column() {
+          Blank()
+          ControlPanel({
+            isVisible: this.showControlPanel,
+            zoomRatio: this.zoomRatio,
+            exposureBias: this.exposureBias,
+            flashEnabled: this.flashEnabled,
+            stabilizationEnabled: this.stabilizationEnabled,
+            onZoomChange: (ratio: number) => {
+              this.zoomRatio = ratio;
+              this.cameraService.setZoomRatio(ratio, false);
+            },
+            onExposureChange: (bias: number) => {
+              this.exposureBias = bias;
+              this.cameraService.setExposureBias(bias, false);
+            },
+            onFlashToggle: (enabled: boolean) => {
+              this.flashEnabled = enabled;
+              this.cameraService.setFlashMode(enabled);
+            },
+            onStabilizationToggle: (enabled: boolean) => {
+              this.stabilizationEnabled = enabled;
+              this.cameraService.setStabilization(enabled, false);
+              this.cameraService.setStabilization(enabled, true);
+            },
+            onClose: () => {
+              this.showControlPanel = false;
+            }
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.End)
+      }
     }
     .width('100%')
     .layoutWeight(1)
@@ -235,8 +278,8 @@ struct Index {
 
       this.RecordButton()
 
-      this.ControlButton('模式', () => {
-        this.switchMode();
+      this.ControlButton('控制', () => {
+        this.showControlPanel = !this.showControlPanel;
       })
 
       this.ControlButton('切换', () => {

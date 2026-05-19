@@ -407,6 +407,94 @@ export class CameraService {
     Logger.info(TAG, 'Camera service released');
   }
 
+  // Zoom control (concurrent mode supports 1.0-6.0x)
+  async setZoomRatio(ratio: number, isFront: boolean): Promise<boolean> {
+    const session = isFront ? this.frontSessionInfo?.videoSession : this.backSessionInfo?.videoSession;
+    if (!session) {
+      Logger.warn(TAG, 'Session not available for zoom');
+      return false;
+    }
+    try {
+      const clampedRatio = Math.max(1.0, Math.min(6.0, ratio));
+      await session.setZoomRatio(clampedRatio);
+      Logger.info(TAG, `Zoom set to ${clampedRatio}x for ${isFront ? 'front' : 'back'}`);
+      return true;
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Set zoom failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  async getZoomRatio(isFront: boolean): Promise<number> {
+    const session = isFront ? this.frontSessionInfo?.videoSession : this.backSessionInfo?.videoSession;
+    if (!session) {
+      return 1.0;
+    }
+    try {
+      return await session.getZoomRatio();
+    } catch (error) {
+      return 1.0;
+    }
+  }
+
+  // Exposure compensation control
+  async setExposureBias(bias: number, isFront: boolean): Promise<boolean> {
+    const session = isFront ? this.frontSessionInfo?.videoSession : this.backSessionInfo?.videoSession;
+    if (!session) {
+      Logger.warn(TAG, 'Session not available for exposure');
+      return false;
+    }
+    try {
+      const clampedBias = Math.max(-4, Math.min(4, bias));
+      await session.setExposureBias(clampedBias);
+      Logger.info(TAG, `Exposure bias set to ${clampedBias}`);
+      return true;
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Set exposure failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  // Flash control (for back camera in concurrent mode)
+  async setFlashMode(enabled: boolean): Promise<boolean> {
+    const session = this.backSessionInfo?.videoSession;
+    if (!session) {
+      Logger.warn(TAG, 'Back session not available for flash');
+      return false;
+    }
+    try {
+      const mode = enabled ? camera.FlashMode.FLASH_MODE_ON : camera.FlashMode.FLASH_MODE_OFF;
+      await session.setFlashMode(mode);
+      Logger.info(TAG, `Flash mode set to ${enabled ? 'on' : 'off'}`);
+      return true;
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Set flash failed: ${err.message}`);
+      return false;
+    }
+  }
+
+  // Video stabilization control
+  async setStabilization(enabled: boolean, isFront: boolean): Promise<boolean> {
+    const session = isFront ? this.frontSessionInfo?.videoSession : this.backSessionInfo?.videoSession;
+    if (!session) {
+      return false;
+    }
+    try {
+      await session.setVideoStabilizationMode(
+        enabled ? camera.VideoStabilizationMode.ON : camera.VideoStabilizationMode.OFF
+      );
+      Logger.info(TAG, `Stabilization ${enabled ? 'enabled' : 'disabled'}`);
+      return true;
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Set stabilization failed: ${err.message}`);
+      return false;
+    }
+  }
+
   getFrontCamera(): camera.CameraDevice | null {
     return this.frontCamera;
   }

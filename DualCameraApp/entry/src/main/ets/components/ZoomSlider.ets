@@ -1,9 +1,9 @@
-@Component
+@ComponentV2
 export struct ZoomSlider {
-  @Prop minZoom: number = 1.0;
-  @Prop maxZoom: number = 5.0;
-  @State currentZoom: number = 1.0;
-  private onZoomChange?: (ratio: number) => void;
+  @Param minZoom: number = 1.0;
+  @Param maxZoom: number = 6.0;
+  @Param currentZoom: number = 1.0;
+  @Event onZoomChange: (ratio: number) => void = () => {};
 
   build() {
     Column() {
@@ -19,23 +19,16 @@ export struct ZoomSlider {
         step: 0.1,
         style: SliderStyle.OutSet
       })
-        .blockColor(Color.Red)
+        .blockColor('#4CAF50')
         .trackColor('#333333')
-        .selectedColor(Color.Red)
+        .selectedColor('#4CAF50')
         .onChange((value: number) => {
-          this.currentZoom = value;
-          if (this.onZoomChange) {
-            this.onZoomChange(value);
-          }
+          this.onZoomChange(value);
         })
     }
     .width(60)
     .padding(8)
-    .backgroundColor('#2A2A2A')
+    .backgroundColor('#1A1A1A')
     .borderRadius(12)
-  }
-
-  setOnZoomChange(callback: (ratio: number) => void): void {
-    this.onZoomChange = callback;
   }
 }

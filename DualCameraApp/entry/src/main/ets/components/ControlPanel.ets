@@ -2,38 +2,58 @@ import { Logger } from '../utils/Logger';
 
 const TAG = 'ControlPanel';
 
-@Component
+@ComponentV2
 export struct ControlPanel {
-  @Prop isVisible: boolean = false;
-  @State zoomRatio: number = 1.0;
-  @State exposureBias: number = 0;
-  private onZoomChange?: (ratio: number) => void;
-  private onExposureChange?: (bias: number) => void;
+  @Param isVisible: boolean = false;
+  @Param zoomRatio: number = 1.0;
+  @Param exposureBias: number = 0;
+  @Param flashEnabled: boolean = false;
+  @Param stabilizationEnabled: boolean = true;
+  @Event onZoomChange: (ratio: number) => void = () => {};
+  @Event onExposureChange: (bias: number) => void = () => {};
+  @Event onFlashToggle: (enabled: boolean) => void = () => {};
+  @Event onStabilizationToggle: (enabled: boolean) => void = () => {};
+  @Event onClose: () => void = () => {};
 
   build() {
     if (this.isVisible) {
       Column() {
+        // Header
+        Row() {
+          Text('相机控制')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(Color.White)
+          Blank()
+          Text('✕')
+            .fontSize(18)
+            .fontColor('#888888')
+            .onClick(() => {
+              this.onClose();
+            })
+        }
+        .width('100%')
+        .padding({ bottom: 12 })
+
         // Zoom control
         Row() {
           Text('变焦')
             .fontSize(14)
             .fontColor(Color.White)
-            .width(50)
+            .width(60)
 
           Slider({
             value: this.zoomRatio,
             min: 1.0,
-            max: 5.0,
+            max: 6.0,
             step: 0.1
           })
             .layoutWeight(1)
-            .blockColor(Color.Red)
+            .blockColor('#4CAF50')
             .trackColor('#333333')
+            .selectedColor('#4CAF50')
             .onChange((value: number) => {
-              this.zoomRatio = value;
-              if (this.onZoomChange) {
-                this.onZoomChange(value);
-              }
+              this.onZoomChange(value);
             })
 
           Text(`${this.zoomRatio.toFixed(1)}x`)
@@ -43,14 +63,14 @@ export struct ControlPanel {
             .textAlign(TextAlign.End)
         }
         .width('100%')
-        .padding({ left: 16, right: 16 })
+        .margin({ top: 8 })
 
         // Exposure control
         Row() {
           Text('曝光')
             .fontSize(14)
             .fontColor(Color.White)
-            .width(50)
+            .width(60)
 
           Slider({
             value: this.exposureBias + 4,
@@ -59,13 +79,11 @@ export struct ControlPanel {
             step: 0.5
           })
             .layoutWeight(1)
-            .blockColor(Color.Red)
+            .blockColor('#4CAF50')
             .trackColor('#333333')
+            .selectedColor('#4CAF50')
             .onChange((value: number) => {
-              this.exposureBias = value - 4;
-              if (this.onExposureChange) {
-                this.onExposureChange(this.exposureBias);
-              }
+              this.onExposureChange(value - 4);
             })
 
           Text(`${this.exposureBias >= 0 ? '+' : ''}${this.exposureBias.toFixed(1)}`)
@@ -75,21 +93,49 @@ export struct ControlPanel {
             .textAlign(TextAlign.End)
         }
         .width('100%')
-        .padding({ left: 16, right: 16 })
+        .margin({ top: 12 })
+
+        // Flash and Stabilization toggles
+        Row() {
+          Column() {
+            Text(this.flashEnabled ? '🔦' : '💫')
+              .fontSize(24)
+            Text('闪光灯')
+              .fontSize(12)
+              .fontColor(this.flashEnabled ? '#4CAF50' : '#888888')
+              .margin({ top: 4 })
+          }
+          .padding(12)
+          .backgroundColor(this.flashEnabled ? '#2A4A2A' : '#2A2A2A')
+          .borderRadius(8)
+          .onClick(() => {
+            this.onFlashToggle(!this.flashEnabled);
+          })
+
+          Column() {
+            Text(this.stabilizationEnabled ? '🎬' : '📷')
+              .fontSize(24)
+            Text('防抖')
+              .fontSize(12)
+              .fontColor(this.stabilizationEnabled ? '#4CAF50' : '#888888')
+              .margin({ top: 4 })
+          }
+          .padding(12)
+          .backgroundColor(this.stabilizationEnabled ? '#2A4A2A' : '#2A2A2A')
+          .borderRadius(8)
+          .margin({ left: 16 })
+          .onClick(() => {
+            this.onStabilizationToggle(!this.stabilizationEnabled);
+          })
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
         .margin({ top: 16 })
       }
       .width('100%')
       .padding(16)
-      .backgroundColor('#2A2A2A')
-      .borderRadius(12)
+      .backgroundColor('#1A1A1A')
+      .borderRadius({ topLeft: 16, topRight: 16 })
     }
-  }
-
-  setOnZoomChange(callback: (ratio: number) => void): void {
-    this.onZoomChange = callback;
-  }
-
-  setOnExposureChange(callback: (bias: number) => void): void {
-    this.onExposureChange = callback;
   }
 }
