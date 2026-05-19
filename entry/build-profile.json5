@@ -1,0 +1,26 @@
+{
+  "api": {
+    "compatible": 18,
+    "target": 18,
+    "releaseType": "Release"
+  },
+  "buildOption": {
+    "externalNativeOptions": {
+      "path": "./src/main/cpp/CMakeLists.txt",
+      "arguments": "",
+      "cppFlags": ""
+    }
+  },
+  "buildOptionSet": [
+    {
+      "name": "useNormalizedOhosZip",
+      "value": true
+    }
+  ],
+  "targets": [
+    {
+      "name": "default",
+      "runtimeOS": "HarmonyOS"
+    }
+  ]
+}

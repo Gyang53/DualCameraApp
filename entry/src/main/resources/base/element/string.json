@@ -1,0 +1,64 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "双摄大师应用模块"
+    },
+    {
+      "name": "app_name",
+      "value": "双摄大师"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "双摄大师主入口"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "双摄大师"
+    },
+    {
+      "name": "camera_reason",
+      "value": "用于双摄录像功能，实现前后摄像头同时预览和录制"
+    },
+    {
+      "name": "mic_reason",
+      "value": "用于录制视频时的音频采集"
+    },
+    {
+      "name": "media_reason",
+      "value": "用于保存录制的视频文件到相册"
+    },
+    {
+      "name": "page_index_title",
+      "value": "双摄录像"
+    },
+    {
+      "name": "page_settings_title",
+      "value": "设置"
+    },
+    {
+      "name": "btn_record",
+      "value": "录制"
+    },
+    {
+      "name": "btn_stop",
+      "value": "停止"
+    },
+    {
+      "name": "btn_switch_mode",
+      "value": "模式"
+    },
+    {
+      "name": "btn_switch_camera",
+      "value": "切换"
+    },
+    {
+      "name": "btn_album",
+      "value": "相册"
+    },
+    {
+      "name": "btn_settings",
+      "value": "设置"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# Build
+build/
+.node_modules/
+oh_modules/
+.preview/
+.cache/
+
+# Output
+output/
+dist/
+*.hap
+*.app
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config
+local.properties
+*.local
+.env
+.env.*
+
+# Test coverage
+coverage/
+
+# Temp
+*.tmp
+*.temp
