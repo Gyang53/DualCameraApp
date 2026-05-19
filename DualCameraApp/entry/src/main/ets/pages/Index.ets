@@ -1,11 +1,15 @@
-import { CameraService } from '../services/CameraService';
+import { CameraService, CameraSessionInfo } from '../services/CameraService';
+import { RecordService, RecordingConfig, RecordingResult } from '../services/RecordService';
 import { PermissionService } from '../services/PermissionService';
 import { SplitView } from '../components/SplitView';
 import { PIPView } from '../components/PIPView';
 import { Logger } from '../utils/Logger';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { camera } from '@kit.CameraKit';
 
 const TAG = 'Index';
+
+type RecordState = 'idle' | 'preparing' | 'recording' | 'paused';
 
 @Entry
 @ComponentV2
@@ -13,33 +17,39 @@ struct Index {
   @Local isInitialized: boolean = false;
   @Local hasPermissions: boolean = false;
   @Local isDualCameraSupported: boolean = false;
-  @Local isRecording: boolean = false;
+  @Local recordState: RecordState = 'idle';
   @Local currentMode: 'split' | 'pip' = 'split';
   @Local recordingDuration: number = 0;
   @Local errorMessage: string = '';
 
   private cameraService: CameraService = new CameraService();
+  private recordService: RecordService = new RecordService();
   private permissionService: PermissionService = new PermissionService();
-  private frontSurfaceId: string = '';
-  private backSurfaceId: string = '';
+  
+  private frontPreviewSurfaceId: string = '';
+  private backPreviewSurfaceId: string = '';
   private recordingTimer: number = -1;
+  private appContext: Context | null = null;
 
   async aboutToAppear(): Promise<void> {
     Logger.info(TAG, 'Index page aboutToAppear');
+    this.appContext = getContext(this) as Context;
     await this.checkAndRequestPermissions();
   }
 
   aboutToDisappear(): void {
     this.stopRecordingTimer();
     this.cameraService.release();
+    this.recordService.release();
   }
 
   async checkAndRequestPermissions(): Promise<void> {
-    const context = getContext(this);
-    this.hasPermissions = await this.permissionService.requestAllPermissions(context);
+    if (!this.appContext) return;
+    
+    this.hasPermissions = await this.permissionService.requestAllPermissions(this.appContext);
     
     if (this.hasPermissions) {
-      await this.initializeCamera(context);
+      await this.initializeCamera(this.appContext);
     } else {
       this.errorMessage = '请授予相机、麦克风和存储权限';
     }
@@ -53,17 +63,27 @@ struct Index {
       this.errorMessage = '此设备不支持双摄并发';
       Logger.warn(TAG, 'Device does not support concurrent dual camera');
     }
+
+    await this.recordService.initialize();
   }
 
-  async startDualPreview(): Promise<void> {
-    if (!this.frontSurfaceId || !this.backSurfaceId) {
-      Logger.warn(TAG, 'Surface IDs not ready');
+  async onSurfacesReady(frontSurfaceId: string, backSurfaceId: string): Promise<void> {
+    this.frontPreviewSurfaceId = frontSurfaceId;
+    this.backPreviewSurfaceId = backSurfaceId;
+    
+    if (frontSurfaceId && backSurfaceId && !this.cameraService.isSessionRunning()) {
+      await this.startPreview();
+    }
+  }
+
+  async startPreview(): Promise<void> {
+    if (!this.frontPreviewSurfaceId || !this.backPreviewSurfaceId) {
       return;
     }
 
     const success = await this.cameraService.startConcurrentPreview(
-      this.frontSurfaceId,
-      this.backSurfaceId
+      this.frontPreviewSurfaceId,
+      this.backPreviewSurfaceId
     );
 
     if (!success) {
@@ -74,7 +94,6 @@ struct Index {
   build() {
     Column() {
       this.PreviewArea()
-
       this.ControlBar()
     }
     .width('100%')
@@ -97,12 +116,10 @@ struct Index {
             frontMirror: false
           })
             .onFrontSurfaceReady((surfaceId: string) => {
-              this.frontSurfaceId = surfaceId;
-              this.tryStartPreview();
+              this.onSurfacesReady(surfaceId, this.backPreviewSurfaceId);
             })
             .onBackSurfaceReady((surfaceId: string) => {
-              this.backSurfaceId = surfaceId;
-              this.tryStartPreview();
+              this.onSurfacesReady(this.frontPreviewSurfaceId, surfaceId);
             })
         } else {
           PIPView({
@@ -111,12 +128,10 @@ struct Index {
             frontMirror: false
           })
             .onFrontSurfaceReady((surfaceId: string) => {
-              this.frontSurfaceId = surfaceId;
-              this.tryStartPreview();
+              this.onSurfacesReady(surfaceId, this.backPreviewSurfaceId);
             })
             .onBackSurfaceReady((surfaceId: string) => {
-              this.backSurfaceId = surfaceId;
-              this.tryStartPreview();
+              this.onSurfacesReady(this.frontPreviewSurfaceId, surfaceId);
             })
         }
       }
@@ -125,7 +140,7 @@ struct Index {
         this.ErrorOverlay()
       }
 
-      if (this.isRecording) {
+      if (this.recordState === 'recording' || this.recordState === 'paused') {
         this.RecordingIndicator()
       }
     }
@@ -187,11 +202,17 @@ struct Index {
       Circle()
         .width(12)
         .height(12)
-        .fill(Color.Red)
+        .fill(this.recordState === 'paused' ? '#FFA500' : Color.Red)
       Text(this.formatDuration(this.recordingDuration))
         .fontSize(14)
         .fontColor(Color.White)
         .margin({ left: 8 })
+      if (this.recordState === 'paused') {
+        Text('(已暂停)')
+          .fontSize(12)
+          .fontColor('#FFA500')
+          .margin({ left: 4 })
+      }
     }
     .padding({ left: 12, right: 12, top: 6, bottom: 6 })
     .backgroundColor('#80000000')
@@ -250,12 +271,22 @@ struct Index {
         .stroke(Color.White, width: 4)
         .fill(Color.Transparent)
 
-      if (this.isRecording) {
+      if (this.recordState === 'recording') {
         Rect()
           .width(24)
           .height(24)
           .fill(Color.Red)
           .borderRadius(4)
+      } else if (this.recordState === 'paused') {
+        Row() {
+          Rect().width(8).height(20).fill('#FFA500')
+          Rect().width(8).height(20).fill('#FFA500').margin({ left: 4 })
+        }
+      } else if (this.recordState === 'preparing') {
+        LoadingProgress()
+          .width(40)
+          .height(40)
+          .color(Color.White)
       } else {
         Circle()
           .width(60)
@@ -266,46 +297,157 @@ struct Index {
     .width(80)
     .height(80)
     .onClick(() => {
-      this.toggleRecording();
+      this.handleRecordAction();
     })
   }
 
-  private tryStartPreview(): void {
-    if (this.frontSurfaceId && this.backSurfaceId && !this.cameraService.isSessionRunning()) {
-      this.startDualPreview();
+  private async handleRecordAction(): Promise<void> {
+    switch (this.recordState) {
+      case 'idle':
+        await this.startRecording();
+        break;
+      case 'recording':
+        await this.pauseRecording();
+        break;
+      case 'paused':
+        await this.resumeRecording();
+        break;
     }
   }
 
-  private toggleRecording(): void {
-    if (this.isRecording) {
-      this.stopRecording();
-    } else {
-      this.startRecording();
+  private async startRecording(): Promise<void> {
+    if (!this.appContext || !this.cameraService.isSessionRunning()) {
+      this.errorMessage = '请先启动预览';
+      return;
+    }
+
+    this.recordState = 'preparing';
+    this.errorMessage = ';
+
+    try {
+      // 先停止当前预览
+      await this.cameraService.stopPreview();
+
+      // 准备录制
+      const config: RecordingConfig = {
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        bitrate: 5000000,
+        isHdr: false
+      };
+
+      const surfaces = await this.recordService.prepareRecording(this.appContext, config);
+      if (!surfaces) {
+        this.errorMessage = '准备录制失败';
+        this.recordState = 'idle';
+        await this.startPreview();
+        return;
+      }
+
+      // 重新启动带 VideoOutput 的预览
+      const success = await this.cameraService.startConcurrentRecording(
+        this.frontPreviewSurfaceId,
+        this.backPreviewSurfaceId,
+        surfaces.frontSurfaceId,
+        surfaces.backSurfaceId
+      );
+
+      if (!success) {
+        this.errorMessage = '启动录制预览失败';
+        this.recordState = 'idle';
+        await this.recordService.reset();
+        await this.startPreview();
+        return;
+      }
+
+      // 启动 VideoOutput
+      await this.cameraService.startVideoOutput();
+
+      // 开始录制
+      const started = await this.recordService.startRecording();
+      if (started) {
+        this.recordState = 'recording';
+        this.recordingDuration = 0;
+        this.startRecordingTimer();
+        Logger.info(TAG, 'Recording started');
+      } else {
+        this.errorMessage = '开始录制失败';
+        this.recordState = 'idle';
+        await this.recordService.reset();
+        await this.startPreview();
+      }
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Start recording failed: ${err.message}`);
+      this.errorMessage = `录制失败: ${err.message}`;
+      this.recordState = 'idle';
+      await this.recordService.reset();
+      await this.startPreview();
     }
   }
 
-  private startRecording(): void {
-    this.isRecording = true;
-    this.recordingDuration = 0;
-    this.startRecordingTimer();
-    Logger.info(TAG, 'Recording started');
+  private async pauseRecording(): Promise<void> {
+    const success = await this.recordService.pauseRecording();
+    if (success) {
+      this.recordState = 'paused';
+      this.stopRecordingTimer();
+      await this.cameraService.stopVideoOutput();
+      Logger.info(TAG, 'Recording paused');
+    }
   }
 
-  private stopRecording(): void {
-    this.isRecording = false;
+  private async resumeRecording(): Promise<void> {
+    const success = await this.recordService.resumeRecording();
+    if (success) {
+      this.recordState = 'recording';
+      this.startRecordingTimer();
+      await this.cameraService.startVideoOutput();
+      Logger.info(TAG, 'Recording resumed');
+    }
+  }
+
+  private async stopRecording(): Promise<void> {
     this.stopRecordingTimer();
-    Logger.info(TAG, `Recording stopped, duration: ${this.recordingDuration}ms`);
+
+    try {
+      // 停止录制
+      const result = await this.recordService.stopRecording();
+      await this.cameraService.stopVideoOutput();
+
+      if (result) {
+        Logger.info(TAG, `Recording saved: ${JSON.stringify(result)}`);
+        // TODO: 显示保存成功提示
+      }
+
+      // 重置录制器
+      await this.recordService.reset();
+      
+      // 重新启动预览
+      await this.startPreview();
+      
+      this.recordState = 'idle';
+      this.recordingDuration = 0;
+      Logger.info(TAG, 'Recording stopped and preview restarted');
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Stop recording failed: ${err.message}`);
+    }
   }
 
   private switchMode(): void {
+    if (this.recordState !== 'idle') {
+      this.errorMessage = '录制中无法切换模式';
+      return;
+    }
     this.currentMode = this.currentMode === 'split' ? 'pip' : 'split';
     Logger.info(TAG, `Mode switched to: ${this.currentMode}`);
   }
 
   private startRecordingTimer(): void {
     this.recordingTimer = setInterval(() => {
-      this.recordingDuration += 1000;
-    }, 1000);
+      this.recordingDuration = this.recordService.getRecordingDuration();
+    }, 100);
   }
 
   private stopRecordingTimer(): void {
@@ -317,8 +459,13 @@ struct Index {
 
   private formatDuration(ms: number): string {
     const totalSeconds = Math.floor(ms / 1000);
-    const minutes = Math.floor(totalSeconds / 60);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+    }
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   }
 }

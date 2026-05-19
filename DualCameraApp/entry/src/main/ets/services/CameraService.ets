@@ -7,6 +7,7 @@ const TAG = 'CameraService';
 export interface CameraSessionInfo {
   cameraInput: camera.CameraInput;
   previewOutput: camera.PreviewOutput;
+  videoOutput: camera.VideoOutput | null;
   videoSession: camera.VideoSession;
 }
 
@@ -135,9 +136,35 @@ export class CameraService {
     return bestProfile;
   }
 
+  selectVideoProfile(
+    capabilities: camera.CameraOutputCapability,
+    targetWidth: number = 1920,
+    targetHeight: number = 1080
+  ): camera.VideoProfile | null {
+    const profiles = capabilities.videoProfiles;
+    if (!profiles || profiles.length === 0) {
+      return null;
+    }
+
+    let bestProfile: camera.VideoProfile | null = null;
+    let minDiff = Number.MAX_VALUE;
+
+    for (const profile of profiles) {
+      const diff = Math.abs(profile.size.width - targetWidth) +
+                   Math.abs(profile.size.height - targetHeight);
+      if (diff < minDiff) {
+        minDiff = diff;
+        bestProfile = profile;
+      }
+    }
+
+    return bestProfile;
+  }
+
   async createCameraSession(
     device: camera.CameraDevice,
-    surfaceId: string
+    previewSurfaceId: string,
+    videoSurfaceId: string | null = null
   ): Promise<CameraSessionInfo | null> {
     if (!this.cameraManager) {
       Logger.error(TAG, 'Camera manager not initialized');
@@ -151,8 +178,9 @@ export class CameraService {
         return null;
       }
 
-      await cameraInput.open();
-      Logger.info(TAG, 'Camera input opened');
+      // 并发模式下打开相机
+      await cameraInput.open(camera.CameraConcurrentType.CAMERA_LIMITED_CAPABILITY);
+      Logger.info(TAG, 'Camera input opened in concurrent mode');
 
       const capabilities = this.getConcurrentOutputCapability(device);
       if (!capabilities) {
@@ -170,11 +198,20 @@ export class CameraService {
 
       Logger.info(TAG, `Selected preview: ${previewProfile.size.width}x${previewProfile.size.height}`);
 
-      const previewOutput = this.cameraManager.createPreviewOutput(previewProfile, surfaceId);
+      const previewOutput = this.cameraManager.createPreviewOutput(previewProfile, previewSurfaceId);
       if (!previewOutput) {
         Logger.error(TAG, 'Failed to create preview output');
         await cameraInput.close();
         return null;
+      }
+
+      let videoOutput: camera.VideoOutput | null = null;
+      if (videoSurfaceId) {
+        const videoProfile = this.selectVideoProfile(capabilities);
+        if (videoProfile) {
+          videoOutput = this.cameraManager.createVideoOutput(videoProfile, videoSurfaceId);
+          Logger.info(TAG, `Created video output: ${videoProfile.size.width}x${videoProfile.size.height}`);
+        }
       }
 
       const session = this.cameraManager.createSession(camera.SceneMode.NORMAL_VIDEO);
@@ -189,6 +226,7 @@ export class CameraService {
       return {
         cameraInput,
         previewOutput,
+        videoOutput,
         videoSession
       };
     } catch (error) {
@@ -201,6 +239,15 @@ export class CameraService {
   async startConcurrentPreview(
     frontSurfaceId: string,
     backSurfaceId: string
+  ): Promise<boolean> {
+    return this.startConcurrentRecording(frontSurfaceId, backSurfaceId, null, null);
+  }
+
+  async startConcurrentRecording(
+    frontPreviewSurfaceId: string,
+    backPreviewSurfaceId: string,
+    frontVideoSurfaceId: string | null,
+    backVideoSurfaceId: string | null
   ): Promise<boolean> {
     if (!this.isConcurrentSupported) {
       Logger.error(TAG, 'Concurrent camera not supported');
@@ -218,13 +265,21 @@ export class CameraService {
     }
 
     try {
-      this.frontSessionInfo = await this.createCameraSession(this.frontCamera, frontSurfaceId);
+      this.frontSessionInfo = await this.createCameraSession(
+        this.frontCamera, 
+        frontPreviewSurfaceId, 
+        frontVideoSurfaceId
+      );
       if (!this.frontSessionInfo) {
         Logger.error(TAG, 'Failed to create front camera session');
         return false;
       }
 
-      this.backSessionInfo = await this.createCameraSession(this.backCamera, backSurfaceId);
+      this.backSessionInfo = await this.createCameraSession(
+        this.backCamera, 
+        backPreviewSurfaceId, 
+        backVideoSurfaceId
+      );
       if (!this.backSessionInfo) {
         Logger.error(TAG, 'Failed to create back camera session');
         await this.releaseSession(this.frontSessionInfo);
@@ -247,13 +302,48 @@ export class CameraService {
   }
 
   private async configureAndStartSession(sessionInfo: CameraSessionInfo): Promise<void> {
-    const { cameraInput, previewOutput, videoSession } = sessionInfo;
+    const { cameraInput, previewOutput, videoOutput, videoSession } = sessionInfo;
 
     videoSession.beginConfig();
     videoSession.addInput(cameraInput);
     videoSession.addOutput(previewOutput);
+    
+    if (videoOutput) {
+      videoSession.addOutput(videoOutput);
+    }
+    
     await videoSession.commitConfig();
     await videoSession.start();
+  }
+
+  async startVideoOutput(): Promise<void> {
+    try {
+      if (this.frontSessionInfo?.videoOutput) {
+        await this.frontSessionInfo.videoOutput.start();
+      }
+      if (this.backSessionInfo?.videoOutput) {
+        await this.backSessionInfo.videoOutput.start();
+      }
+      Logger.info(TAG, 'Video output started');
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Start video output failed: ${err.message}`);
+    }
+  }
+
+  async stopVideoOutput(): Promise<void> {
+    try {
+      if (this.frontSessionInfo?.videoOutput) {
+        await this.frontSessionInfo.videoOutput.stop();
+      }
+      if (this.backSessionInfo?.videoOutput) {
+        await this.backSessionInfo.videoOutput.stop();
+      }
+      Logger.info(TAG, 'Video output stopped');
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Stop video output failed: ${err.message}`);
+    }
   }
 
   async stopPreview(): Promise<void> {
@@ -288,6 +378,9 @@ export class CameraService {
       }
       if (sessionInfo.previewOutput) {
         await sessionInfo.previewOutput.release();
+      }
+      if (sessionInfo.videoOutput) {
+        await sessionInfo.videoOutput.release();
       }
       if (sessionInfo.cameraInput) {
         await sessionInfo.cameraInput.close();
@@ -328,5 +421,13 @@ export class CameraService {
 
   getBackSession(): camera.VideoSession | null {
     return this.backSessionInfo?.videoSession ?? null;
+  }
+
+  getFrontVideoOutput(): camera.VideoOutput | null {
+    return this.frontSessionInfo?.videoOutput ?? null;
+  }
+
+  getBackVideoOutput(): camera.VideoOutput | null {
+    return this.backSessionInfo?.videoOutput ?? null;
   }
 }
