@@ -6,6 +6,7 @@ import { PIPView } from '../components/PIPView';
 import { Logger } from '../utils/Logger';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { camera } from '@kit.CameraKit';
+import { router } from '@kit.ArkUI';
 
 const TAG = 'Index';
 
@@ -229,7 +230,7 @@ struct Index {
       })
 
       this.ControlButton('设置', () => {
-        Logger.info(TAG, 'Open settings');
+        router.pushUrl({ url: 'pages/Settings' });
       })
 
       this.RecordButton()
@@ -322,7 +323,7 @@ struct Index {
     }
 
     this.recordState = 'preparing';
-    this.errorMessage = ';
+    this.errorMessage = '';
 
     try {
       // 先停止当前预览
