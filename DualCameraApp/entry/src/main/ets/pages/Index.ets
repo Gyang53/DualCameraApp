@@ -8,6 +8,8 @@ import { Logger } from '../utils/Logger';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { camera } from '@kit.CameraKit';
 import { router } from '@kit.ArkUI';
+import { photoAccessHelper } from '@kit.MediaLibraryKit';
+import { common } from '@kit.AbilityKit';
 
 const TAG = 'Index';
 
@@ -24,6 +26,8 @@ struct Index {
   @Local recordingDuration: number = 0;
   @Local errorMessage: string = '';
   @Local showControlPanel: boolean = false;
+  @Local showSuccessToast: boolean = false;
+  @Local successMessage: string = '';
   @Local zoomRatio: number = 1.0;
   @Local exposureBias: number = 0;
   @Local flashEnabled: boolean = false;
@@ -36,7 +40,10 @@ struct Index {
   private frontPreviewSurfaceId: string = '';
   private backPreviewSurfaceId: string = '';
   private recordingTimer: number = -1;
+  private errorTimer: number = -1;
+  private toastTimer: number = -1;
   private appContext: Context | null = null;
+  private lastRecordingResult: RecordingResult | null = null;
 
   async aboutToAppear(): Promise<void> {
     Logger.info(TAG, 'Index page aboutToAppear');
@@ -46,8 +53,41 @@ struct Index {
 
   aboutToDisappear(): void {
     this.stopRecordingTimer();
+    this.stopErrorTimer();
+    this.stopToastTimer();
     this.cameraService.release();
     this.recordService.release();
+  }
+
+  private stopErrorTimer(): void {
+    if (this.errorTimer !== -1) {
+      clearTimeout(this.errorTimer);
+      this.errorTimer = -1;
+    }
+  }
+
+  private stopToastTimer(): void {
+    if (this.toastTimer !== -1) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = -1;
+    }
+  }
+
+  private showError(message: string): void {
+    this.errorMessage = message;
+    this.stopErrorTimer();
+    this.errorTimer = setTimeout(() => {
+      this.errorMessage = '';
+    }, 3000) as number;
+  }
+
+  private showSuccess(message: string): void {
+    this.successMessage = message;
+    this.showSuccessToast = true;
+    this.stopToastTimer();
+    this.toastTimer = setTimeout(() => {
+      this.showSuccessToast = false;
+    }, 2000) as number;
   }
 
   async checkAndRequestPermissions(): Promise<void> {
@@ -147,6 +187,11 @@ struct Index {
         this.ErrorOverlay()
       }
 
+      // Success toast
+      if (this.showSuccessToast) {
+        this.SuccessToast()
+      }
+
       if (this.recordState === 'recording' || this.recordState === 'paused') {
         this.RecordingIndicator()
       }
@@ -241,6 +286,27 @@ struct Index {
   }
 
   @Builder
+  SuccessToast() {
+    Column() {
+      Row() {
+        Text('✓')
+          .fontSize(16)
+          .fontColor('#4CAF50')
+        Text(this.successMessage)
+          .fontSize(14)
+          .fontColor(Color.White)
+          .margin({ left: 8 })
+      }
+      .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+      .backgroundColor('#CC2A2A2A')
+      .borderRadius(20)
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+    .position({ x: 0, y: '40%' })
+  }
+
+  @Builder
   RecordingIndicator() {
     Row() {
       Circle()
@@ -269,7 +335,7 @@ struct Index {
   ControlBar() {
     Row() {
       this.ControlButton('相册', () => {
-        Logger.info(TAG, 'Open album');
+        this.openAlbum();
       })
 
       this.ControlButton('设置', () => {
@@ -282,8 +348,8 @@ struct Index {
         this.showControlPanel = !this.showControlPanel;
       })
 
-      this.ControlButton('切换', () => {
-        Logger.info(TAG, 'Switch cameras');
+      this.ControlButton('模式', () => {
+        this.switchMode();
       })
     }
     .width('100%')
@@ -351,7 +417,7 @@ struct Index {
         await this.startRecording();
         break;
       case 'recording':
-        await this.pauseRecording();
+        await this.stopRecording();
         break;
       case 'paused':
         await this.resumeRecording();
@@ -455,27 +521,46 @@ struct Index {
     this.stopRecordingTimer();
 
     try {
-      // 停止录制
       const result = await this.recordService.stopRecording();
       await this.cameraService.stopVideoOutput();
 
       if (result) {
+        this.lastRecordingResult = result;
         Logger.info(TAG, `Recording saved: ${JSON.stringify(result)}`);
-        // TODO: 显示保存成功提示
+        const duration = Math.floor(result.duration / 1000);
+        const minutes = Math.floor(duration / 60);
+        const seconds = duration % 60;
+        this.showSuccess(`录制完成 ${minutes}分${seconds}秒`);
       }
 
-      // 重置录制器
       await this.recordService.reset();
-      
-      // 重新启动预览
       await this.startPreview();
-      
+
       this.recordState = 'idle';
       this.recordingDuration = 0;
       Logger.info(TAG, 'Recording stopped and preview restarted');
     } catch (error) {
       const err = error as BusinessError;
       Logger.error(TAG, `Stop recording failed: ${err.message}`);
+      this.showError('停止录制失败');
+    }
+  }
+
+  private async openAlbum(): Promise<void> {
+    if (!this.appContext) {
+      return;
+    }
+    try {
+      const context = this.appContext as common.UIAbilityContext;
+      await context.startAbility({
+        action: 'ohos.want.action.VIEW',
+        type: 'video/*',
+        flags: 0x20000000
+      });
+    } catch (error) {
+      const err = error as BusinessError;
+      Logger.error(TAG, `Open album failed: ${err.message}`);
+      this.showError('打开相册失败');
     }
   }
 
